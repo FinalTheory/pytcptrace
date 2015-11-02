@@ -1,0 +1,7 @@
+*.png
+*.pyc
+.idea/
+*.out
+parsetab.py
+tcptrace
+
