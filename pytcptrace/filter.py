@@ -63,6 +63,7 @@ class ASTLeaf:
 tokens = (
     'NAME',
     'OBJECT',
+    'IPADDR',
     'NUMBER',
     'AND',
     'OR',
@@ -86,6 +87,14 @@ t_EQ = r'=='
 t_NEQ = r'!='
 t_AND = r'&&'
 t_OR = r'\|\|'
+
+
+def t_IPADDR(t):
+    r'\d+\.\d+\.\d+\.\d+'
+    for val in map(int, t.value.split('.')):
+        if val > 255:
+            raise ValueError("IP address out of range")
+    return t
 
 
 def t_NUMBER(t):
@@ -117,7 +126,8 @@ precedence = (
 
 def p_expression_obj(p):
     '''expression : OBJECT
-                  | NUMBER'''
+                  | NUMBER
+                  | IPADDR'''
     p[0] = ASTLeaf(p[1])
 
 
@@ -151,7 +161,56 @@ def p_error(p):
 
 yacc.yacc()
 
+
+def generate_filter(filter_expr):
+    ast = yacc.parse(filter_expr)
+    ast.show()
+    return lambda conn: ast_eval(ast, conn)
+
+
+def ast_eval(ast, connection):
+    if ast.is_leaf():
+        # string type data, might be:
+        # 1. connection property
+        # 2. ip address
+        if isinstance(ast.obj_name, str):
+            fields = ast.obj_name.split('.')
+            if fields[0] == 'tcp':
+                val = connection
+                for field in fields[1:]:
+                    val = val[field]
+                return val[0] if isinstance(val, list) else val
+            else:
+                return ast.obj_name
+        else:
+            return ast.obj_name
+    else:
+        if ast.left_expr is None:
+            return not ast_eval(ast.right_expr, connection)
+        else:
+            if ast.operator == '==':
+                return ast_eval(ast.left_expr, connection) == ast_eval(ast.right_expr, connection)
+            elif ast.operator == '!=':
+                return ast_eval(ast.left_expr, connection) != ast_eval(ast.right_expr, connection)
+            elif ast.operator == '>=':
+                return ast_eval(ast.left_expr, connection) >= ast_eval(ast.right_expr, connection)
+            elif ast.operator == '<=':
+                return ast_eval(ast.left_expr, connection) <= ast_eval(ast.right_expr, connection)
+            elif ast.operator == '>':
+                return ast_eval(ast.left_expr, connection) > ast_eval(ast.right_expr, connection)
+            elif ast.operator == '<':
+                return ast_eval(ast.left_expr, connection) < ast_eval(ast.right_expr, connection)
+            elif ast.operator == '&&':
+                return ast_eval(ast.left_expr, connection) and ast_eval(ast.right_expr, connection)
+            elif ast.operator == '||':
+                return ast_eval(ast.left_expr, connection) or ast_eval(ast.right_expr, connection)
+            else:
+                raise RuntimeError("Unknown operator %s" % ast.operator)
+
+
 if __name__ == '__main__':
-    raw_str = '(tcp.a2b.data_size > 10) || !(tcp.b2a.port == 445) && tcp.time > 10.1'
-    root = yacc.parse(raw_str)
-    root.show()
+    pcap_file = '/Users/baidu/Library/Caches/clion11/cmake/generated/b28c2630/b28c2630/Release/demo/test/data.pcap'
+    from pytcptrace import TcpTrace
+    fid = TcpTrace().open(pcap_file)
+    conn_list = fid.read(generate_filter('tcp.host_a == 172.21.216.11 && !(tcp.a2b.packets_sent > 500)'))
+    print len(conn_list)
