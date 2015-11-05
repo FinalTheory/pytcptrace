@@ -18,15 +18,21 @@ class PyTcpTrace:
         self.prefix = tk.StringVar()
         self.filter_str = tk.StringVar()
 
-        self.widget_list = []
-        self.window_list = []
-
+        self.widget_dict = {}
+        self.widget_frame = None
+        self.connection_list = None
         self.handle = None
+
         self.init_loadfile()
         self.init_filter()
+        self.init_list()
+
+    def init_list(self):
         new_frame = tk.Frame(master=self.master)
         self.connection_list = ConnectionList(new_frame)
         new_frame.pack(side=tk.TOP, fill=tk.BOTH)
+        self.widget_frame = tk.Frame(master=self.master)
+        self.widget_frame.pack(side=tk.TOP, fill=tk.BOTH)
 
     def init_loadfile(self):
         new_frame = tk.Frame(master=self.master)
@@ -98,18 +104,18 @@ class PyTcpTrace:
             showerror(title='Filter Error', message='Illegal filter expression.')
 
     def add_widget(self, widget_title, widget_type, *args, **kwargs):
-        new_window = tk.Toplevel(master=self.master)
-        new_window.title(widget_title)
-        widget_obj = widget_type(new_window, *args, **kwargs)
-        self.widget_list.append(widget_obj)
-        self.window_list.append(new_window)
+        # add a button for widget
+        tk.Button(master=self.widget_frame, text=widget_title,
+                  command=lambda title=widget_title: self.activate_widget(title)).pack(side=tk.LEFT)
+        # create a widget object
+        widget_obj = widget_type(self.widget_frame, *args, **kwargs)
+        # and insert it into widget dict
+        self.widget_dict[widget_title] = widget_obj
 
-    # update all widgets with connection list
-    def update_widgets(self):
-        filter_func = generate_filter(self.filter_str.get()) if self.filter_str.get() else None
-        conn_list = self.handle.read(filter_func)
-        for widget_obj in self.widget_list:
-            widget_obj.update(conn_list)
+    def activate_widget(self, title):
+        if title in self.widget_dict:
+            connections, selection = self.connection_list.get_selected()
+            self.widget_dict[title].activate(connections, selection)
 
     def mainloop(self):
         self.master.mainloop()
@@ -149,13 +155,11 @@ class ConnectionList:
         scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
         scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
         self.listbox.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
-        tk.Button(text='Test me', command=self.get_selected).pack(side=tk.BOTTOM)
         self.init_header()
 
     def get_selected(self):
-        print self.listbox.selection()
         return self.connections, map(lambda iid: map(int, iid.split('-'))
-                                     if iid.find('-') != -1 else int(iid),
+                                     if iid.find('-') != -1 else [int(iid), 0],
                                      self.listbox.selection())
 
     def clear_list(self):
