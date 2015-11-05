@@ -1,8 +1,10 @@
 import os
-import sys
+import time
+import datetime
 import json
 import subprocess
 from tempfile import NamedTemporaryFile
+from filter import generate_filter
 
 __author__ = 'huangyan13@baidu.com'
 
@@ -23,7 +25,7 @@ class TcpTrace:
         fid = NamedTemporaryFile('w', delete=False)
         temp_name = fid.name
         fid.close()
-        pid = subprocess.Popen([self._tcptrace, '-J' + temp_name, pcap_file],
+        pid = subprocess.Popen([self._tcptrace, '-J' + temp_name, '-e', '-T', pcap_file],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
         pid.wait()
@@ -38,14 +40,48 @@ class TcpTrace:
 
 
 class PcapHandle:
+    # the unix timestamp of 2000-01-01
+    TIME_MAGIC = time.mktime(datetime.datetime(2000, 1, 1).timetuple())
+
     def __init__(self, raw_json, stdout, stderr):
         self._raw_json = raw_json.decode('utf-8')
         self._stdout = stdout
         self._stderr = stderr
         self.conn_data = json.loads(self._raw_json)
+        self.filter_func = None
+        self.shift_time()
 
-    def read(self, filter_func=None):
-        if not filter_func:
+    def shift_time(self):
+        min_time = None
+        for conn in self.conn_data:
+            times = (conn['first_packet_time'],
+                     conn['a2b']['first_data_time'][0],
+                     conn['b2a']['first_data_time'][0])
+            for t in times:
+                if t > self.TIME_MAGIC and (not min_time or t < min_time):
+                    min_time = t
+
+        def time_wrapper(time_val):
+            return time_val if time_val < self.TIME_MAGIC else time_val - min_time
+
+        for idx in range(len(self.conn_data)):
+            for field in ('first_packet_time', 'last_packet_time'):
+                self.conn_data[idx][field] = time_wrapper(self.conn_data[idx][field])
+
+            for direct in ('a2b', 'b2a'):
+                for field in ('first_data_time', 'last_data_time'):
+                    self.conn_data[idx][direct][field][0] = time_wrapper(self.conn_data[idx][direct][field][0])
+
+                for field in ('time', 'points_time'):
+                    if field in self.conn_data[idx][direct]:
+                        for i in range(len(self.conn_data[idx][direct][field])):
+                            self.conn_data[idx][direct][field][i] = time_wrapper(self.conn_data[idx][direct][field][i])
+
+    def set_filter(self, filter_func=None):
+        self.filter_func = filter_func
+
+    def read(self):
+        if not self.filter_func:
             return self.conn_data
         else:
-            return filter(lambda x: filter_func(x), self.conn_data)
+            return filter(lambda x: self.filter_func(x), self.conn_data)

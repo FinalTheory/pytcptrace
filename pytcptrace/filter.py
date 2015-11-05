@@ -59,6 +59,12 @@ class ASTLeaf:
     def is_leaf(self):
         return True
 
+    def show(self, filename='AST.png'):
+        g = AGraph()
+        g.graph_attr['label'] = 'AST'
+        AST_DFS(self, g)
+        g.layout(prog='dot')
+        g.draw(filename)
 
 tokens = (
     'NAME',
@@ -163,6 +169,8 @@ yacc.yacc()
 
 
 def generate_filter(filter_expr):
+    if not filter_expr:
+        return None
     ast = yacc.parse(filter_expr)
     ast.show()
     return lambda conn: ast_eval(ast, conn)
@@ -212,5 +220,4 @@ if __name__ == '__main__':
     pcap_file = '/Users/baidu/Library/Caches/clion11/cmake/generated/b28c2630/b28c2630/Release/demo/test/data.pcap'
     from pytcptrace import TcpTrace
     fid = TcpTrace().open(pcap_file)
-    conn_list = fid.read(generate_filter('tcp.host_a == 172.21.216.11 && !(tcp.a2b.packets_sent > 500)'))
-    print len(conn_list)
+    generate_filter('tcp.data < 123')
