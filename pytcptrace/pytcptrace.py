@@ -1,5 +1,6 @@
 import os
 import time
+import base64
 import datetime
 import json
 import subprocess
@@ -50,6 +51,26 @@ class PcapHandle:
         self.conn_data = json.loads(self._raw_json)
         self.filter_func = None
         self.shift_time()
+        self.decode_data()
+
+    @staticmethod
+    def decode_base64(data):
+        """
+            Decode base64, padding being optional.
+            :param data: Base64 data as an ASCII byte string
+            :returns: The decoded byte string.
+        """
+        missing_padding = 4 - len(data) % 4
+        if missing_padding:
+            data += b'=' * missing_padding
+        return base64.decodestring(data)
+
+    def decode_data(self):
+        for idx in range(len(self.conn_data)):
+            for field in ('a2b', 'b2a'):
+                if 'base64_data' in self.conn_data[idx][field]:
+                    self.conn_data[idx][field]['base64_data'] =\
+                        self.decode_base64(self.conn_data[idx][field]['base64_data'])
 
     def shift_time(self):
         min_time = None

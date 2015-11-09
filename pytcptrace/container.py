@@ -69,6 +69,9 @@ class PyTcpTrace:
                 self.handle = TcpTrace().open(self.filename.get())
                 # associate connection list with tcptrace handle
                 self.connection_list.associate(self.handle)
+                # enable widget buttons
+                for obj_tuple in self.widget_dict.values():
+                    obj_tuple[1].config(state=tk.NORMAL)
             except RuntimeError:
                 showerror(title='Open file', message='Unable to load file, check if it is a valid .pcap file')
 
@@ -105,17 +108,18 @@ class PyTcpTrace:
 
     def add_widget(self, widget_title, widget_type, *args, **kwargs):
         # add a button for widget
-        tk.Button(master=self.widget_frame, text=widget_title,
-                  command=lambda title=widget_title: self.activate_widget(title)).pack(side=tk.LEFT)
+        new_btn = tk.Button(master=self.widget_frame, text=widget_title, state=tk.DISABLED,
+                            command=lambda title=widget_title: self.activate_widget(title))
+        new_btn.pack(side=tk.LEFT)
         # create a widget object
         widget_obj = widget_type(self.widget_frame, *args, **kwargs)
         # and insert it into widget dict
-        self.widget_dict[widget_title] = widget_obj
+        self.widget_dict[widget_title] = (widget_obj, new_btn)
 
     def activate_widget(self, title):
         if title in self.widget_dict:
             connections, selection = self.connection_list.get_selected()
-            self.widget_dict[title].activate(connections, selection)
+            self.widget_dict[title][0].activate(connections, selection)
 
     def mainloop(self):
         self.master.mainloop()
@@ -159,7 +163,7 @@ class ConnectionList:
 
     def get_selected(self):
         return self.connections, map(lambda iid: map(int, iid.split('-'))
-                                     if iid.find('-') != -1 else [int(iid), 0],
+        if iid.find('-') != -1 else [int(iid), 0],
                                      self.listbox.selection())
 
     def clear_list(self):
@@ -235,4 +239,4 @@ class ConnectionList:
                             tkFont.Font().measure(str(b2a_details[idx])))
                 cur_col = self.listbox.column(self.Headers[idx][0], width=None)
                 if cur_col < col_w:
-                    self.listbox.column(self.Headers[idx][0], width=col_w+10)
+                    self.listbox.column(self.Headers[idx][0], width=col_w + 10)
