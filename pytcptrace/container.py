@@ -23,14 +23,14 @@ class PyTcpTrace:
         self.connection_list = None
         self.handle = None
 
-        self.init_loadfile()
         self.init_filter()
         self.init_list()
+        self.init_loadfile()
 
     def init_list(self):
         new_frame = tk.Frame(master=self.master)
         self.connection_list = ConnectionList(new_frame)
-        new_frame.pack(side=tk.TOP, fill=tk.BOTH)
+        new_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
         self.widget_frame = tk.Frame(master=self.master)
         self.widget_frame.pack(side=tk.TOP, fill=tk.BOTH)
 
@@ -42,7 +42,7 @@ class PyTcpTrace:
                   command=self.load_pcap_file).pack(side=tk.LEFT)
         tk.Button(master=new_frame, text='Export',
                   command=self.export_dialog).pack(side=tk.LEFT)
-        new_frame.pack(side=tk.BOTTOM, fill=tk.BOTH)
+        new_frame.pack(side=tk.TOP, fill=tk.BOTH)
 
     def export_dialog(self):
         top = tk.Toplevel(master=self.master)

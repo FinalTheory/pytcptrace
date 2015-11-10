@@ -1,5 +1,6 @@
 import Tkinter as tk
 import numpy as np
+import curses.ascii
 import matplotlib
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
@@ -35,6 +36,20 @@ class Widget:
             self.connections = None
             self.selection = None
             self.is_active = False
+
+    # leave only the sub-connections
+    @staticmethod
+    def selection_filter(selection):
+        new_selection = []
+        for select in selection:
+            if select[1] == 0:
+                if [select[0], 1] not in selection:
+                    new_selection.append([select[0], 1])
+                if [select[0], 2] not in selection:
+                    new_selection.append([select[0], 2])
+            else:
+                new_selection.append(select)
+        return new_selection
 
 
 class ThroughputGraph(Widget):
@@ -167,20 +182,8 @@ class ThroughputGraph(Widget):
         if self.is_active:
             return
         Widget.activate(self, connections, selection)
-
         # proceed the selection items
-        # leave only the sub-connections
-        new_selection = []
-        for select in self.selection:
-            if select[1] == 0:
-                if [select[0], 1] not in self.selection:
-                    new_selection.append([select[0], 1])
-                if [select[0], 2] not in self.selection:
-                    new_selection.append([select[0], 2])
-            else:
-                new_selection.append(select)
-
-        self.selection = new_selection
+        self.selection = self.selection_filter(self.selection)
         self.figure = Figure(figsize=(15, 5))
         self.init_canvas()
         self.init_buttons()
@@ -196,30 +199,95 @@ class ConnectionData(Widget):
         Widget.__init__(self, master, 'Connection Raw Data')
         self.listbox = None
         self.text = None
+        self.preview_size = tk.IntVar()
+        self.preview_size.set(4)
+        self.str2conn = {}
 
     def init_interface(self):
-        new_frame = tk.Frame(master=self.window)
+        main_frame = tk.Frame(master=self.window)
 
-        self.listbox = tk.Listbox(master=new_frame)
-        self.text = tk.Text(master=new_frame)
+        listbox_frame = tk.Frame(master=main_frame)
 
-        self.listbox.pack(side=tk.LEFT, fill=tk.Y)
-        self.text.pack(side=tk.RIGHT)
+        new_frame = tk.Frame(master=listbox_frame)
+        scrollbar1 = tk.Scrollbar(master=new_frame, orient=tk.VERTICAL)
+        scrollbar2 = tk.Scrollbar(master=new_frame, orient=tk.HORIZONTAL)
+        self.listbox = tk.Listbox(master=new_frame, font='Monaco',
+                                  yscrollcommand=scrollbar1.set,
+                                  xscrollcommand=scrollbar2.set)
+        self.listbox.bind('<<ListboxSelect>>', self.on_select)
+        scrollbar1.config(command=self.listbox.yview)
+        scrollbar2.config(command=self.listbox.xview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
+        self.listbox.pack(fill=tk.BOTH, expand=True)
+        new_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        new_frame.pack(side=tk.TOP)
+        sub_frame = tk.Frame(master=listbox_frame)
+        tk.Label(master=sub_frame, text='Preview Size').pack(side=tk.LEFT)
+        tk.Entry(master=sub_frame, textvariable=self.preview_size, width=5).pack(side=tk.LEFT)
+        tk.Label(master=sub_frame, text='KB').pack(side=tk.LEFT)
+        sub_frame.pack(side=tk.TOP)
 
-    def show_text(self):
-        pass
+        listbox_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        new_frame = tk.Frame(master=main_frame)
+        scrollbar1 = tk.Scrollbar(master=new_frame, orient=tk.VERTICAL)
+        scrollbar2 = tk.Scrollbar(master=new_frame, orient=tk.HORIZONTAL)
+        self.text = tk.Text(master=new_frame, font='Monaco',
+                            yscrollcommand=scrollbar1.set,
+                            xscrollcommand=scrollbar2.set)
+        scrollbar1.config(command=self.text.yview)
+        scrollbar2.config(command=self.text.xview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
+        self.text.pack(fill=tk.BOTH, expand=True)
+        new_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        main_frame.pack(fill=tk.BOTH, expand=True)
+
+    def init_listbox(self):
+        col_width = 0
+        for select in self.selection:
+            conn = self.connections[select[0]]
+            if select[1] == 1:
+                str_item = '%s:%d -> %s:%d' % (conn['host_a'], conn['port_a'],
+                                               conn['host_b'], conn['port_b'])
+                self.str2conn[str_item] = conn['a2b']
+
+            else:
+                str_item = '%s:%d -> %s:%d' % (conn['host_b'], conn['port_b'],
+                                               conn['host_a'], conn['port_a'])
+                self.str2conn[str_item] = conn['b2a']
+            self.listbox.insert(tk.END, str_item)
+            # increase column width
+            new_w = len(str_item)
+            if new_w > col_width:
+                self.listbox.config(width=new_w)
+                col_width = new_w
+
+    def on_select(self, event):
+        listbox = event.widget
+        index = int(listbox.curselection()[0])
+        sub_conn = self.str2conn[listbox.get(index)]
+        # first delete all previous data
+        self.text.delete(1.0, tk.END)
+        # then insert real data into it
+        if 'base64_data' in sub_conn:
+            data = sub_conn['base64_data'].replace('\r\n', '\n')
+            max_len = min(len(data), self.preview_size.get() * 1024)
+            new_data = ''.join(map(lambda c:
+                                   c if curses.ascii.isprint(c) or curses.ascii.isspace(c)
+                                   else '\\x%X' % ord(c), list(data[0:max_len])))
+            self.text.insert(tk.END, new_data)
 
     def activate(self, connections, selection):
         if self.is_active:
             return
         Widget.activate(self, connections, selection)
-
+        # proceed the selection items
+        self.selection = self.selection_filter(self.selection)
         self.init_interface()
-
-        for select in selection:
-            pass
+        self.init_listbox()
 
 
 class HttpDetail(Widget):
