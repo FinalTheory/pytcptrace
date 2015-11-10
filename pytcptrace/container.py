@@ -77,6 +77,9 @@ class PyTcpTrace:
 
     def init_filter(self):
         new_frame = tk.Frame(master=self.master)
+        tk.Button(master=new_frame, text='Select All',
+                  command=lambda: self.connection_list.select_all()
+                  if self.connection_list else None).pack(side=tk.LEFT)
         tk.Label(master=new_frame, text='Filter: ').pack(side=tk.LEFT)
         filter_entry = tk.Entry(master=new_frame, textvariable=self.filter_str, validate="key")
         vcmd = self.master.register(lambda new_text, entry=filter_entry: self.validate_filter(new_text, entry))
@@ -130,6 +133,7 @@ class ConnectionList:
     FLOAT_FMT = '%.3f'
 
     Headers = [
+        ('Status', lambda x: x['complete']),
         ('Packets', lambda x: x['total_packets']),
         ('Bytes', lambda x: x['a2b']['unique_bytes_sent'][0] +
                             x['b2a']['unique_bytes_sent'][0]),
@@ -143,6 +147,7 @@ class ConnectionList:
         self.handle = None
         self.connections = None
         self.listbox = None
+        self.selected_all = False
         self.master = master
         self.init_treeview()
 
@@ -163,7 +168,7 @@ class ConnectionList:
 
     def get_selected(self):
         return self.connections, map(lambda iid: map(int, iid.split('-'))
-        if iid.find('-') != -1 else [int(iid), 0],
+                                     if iid.find('-') != -1 else [int(iid), 0],
                                      self.listbox.selection())
 
     def clear_list(self):
@@ -207,14 +212,15 @@ class ConnectionList:
             return self.FLOAT_FMT % time_val
 
         def get_sub_connection(sub_conn):
-            return sub_conn['packets_sent'][0], \
+            return '%d FINs' % sub_conn['FIN_pkts_sent'][0],\
+                   sub_conn['packets_sent'][0], \
                    sub_conn['unique_bytes_sent'][0], \
                    time_wrapper(sub_conn['first_data_time'][0]), \
                    time_wrapper(sub_conn['last_data_time'][0]), \
                    time_wrapper(sub_conn['data_trans_time'][0])
 
         for index, conn in enumerate(conn_list):
-            conn_details = (conn['total_packets'],
+            conn_details = (conn['complete'], conn['total_packets'],
                             conn['a2b']['unique_bytes_sent'][0] + conn['b2a']['unique_bytes_sent'][0],
                             time_wrapper(conn['first_packet_time']),
                             time_wrapper(conn['last_packet_time']),
@@ -240,3 +246,18 @@ class ConnectionList:
                 cur_col = self.listbox.column(self.Headers[idx][0], width=None)
                 if cur_col < col_w:
                     self.listbox.column(self.Headers[idx][0], width=col_w + 10)
+
+    def select_all(self):
+        if not self.listbox.get_children():
+            return
+        if self.selected_all:
+            for item in self.listbox.get_children():
+                self.listbox.selection_remove(item)
+                for child in self.listbox.get_children(item):
+                    self.listbox.selection_remove(child)
+        else:
+            for item in self.listbox.get_children():
+                self.listbox.selection_add(item)
+                for child in self.listbox.get_children(item):
+                    self.listbox.selection_add(child)
+        self.selected_all = not self.selected_all

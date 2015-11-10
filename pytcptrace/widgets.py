@@ -29,14 +29,12 @@ class Widget:
         self.is_active = True
 
     def window_close(self):
-        self.is_active = False
-        self._quit()
-
-    def _quit(self):
         if self.window:
-            # this is necessary on Windows to prevent
-            # Fatal Python Error: PyEval_RestoreThread: NULL tstate
             self.window.destroy()
+            self.window = None
+            self.connections = None
+            self.selection = None
+            self.is_active = False
 
 
 class ThroughputGraph(Widget):
@@ -49,6 +47,8 @@ class ThroughputGraph(Widget):
         self.smooth = tk.IntVar()
 
     def smoothing(self, x_val, y_val):
+        if not x_val or not y_val:
+            return np.array([]), np.array([])
         x_val = np.array(x_val)
         y_val = np.array(y_val)
         new_x = np.linspace(x_val[0], x_val[-1], num=len(x_val)*10)
@@ -97,7 +97,6 @@ class ThroughputGraph(Widget):
             1: 'a2b',
             2: 'b2a',
         }
-        # TODO: fix the selection error
         for select in self.selection:
             if select[1] != 0:
                 conn = self.connections[select[0]]
@@ -111,23 +110,27 @@ class ThroughputGraph(Widget):
                 t = np.array(sub_conn['points_time'])
                 val = np.array(sub_conn['points_data'])
                 aver_window = float(self.aver_window.get())
+
+                def set_axis(ax):
+                    ax.legend(loc='upper right')
+                    ax.set_xlabel('Time (s)')
+                    ax.set_ylabel('Throughput (Bytes/s)')
+
                 if len(t) and len(val):
                     if plot_type == 'instant':
                         x_val, y_val = self.instant_average(t, val, aver_window)
                         if len(x_val) > 1:
                             axis.plot(x_val, y_val, label=title)
                             axis.set_title('Instant Throughput')
+                            set_axis(axis)
                     elif plot_type == 'average':
                         x_val, y_val = self.total_average(t, val, aver_window)
                         if len(x_val) > 1:
                             axis.plot(x_val, y_val, label=title)
                             axis.set_title('Cumulative Average Throughput')
+                            set_axis(axis)
                     else:
                         raise ValueError('Unknown plot type')
-                    # set legend
-                    axis.legend(loc='upper right')
-                    axis.set_xlabel('Time (s)')
-                    axis.set_ylabel('Throughput (Bytes/s)')
 
         # set tight layout for output
         self.figure.tight_layout()
@@ -136,13 +139,13 @@ class ThroughputGraph(Widget):
     def init_buttons(self):
         new_frame = tk.Frame(master=self.window)
         tk.Label(master=new_frame, text='Average Scale').pack(side=tk.LEFT)
-        tk.Checkbutton(master=new_frame, text="Smoothing", variable=self.smooth).pack(side=tk.LEFT)
         tk.Entry(master=new_frame, textvariable=self.aver_window, width=4).pack(side=tk.LEFT)
+        tk.Checkbutton(master=new_frame, text="Smoothing", variable=self.smooth).pack(side=tk.LEFT)
         tk.Button(master=new_frame, text='Instant',
                   command=lambda: self.plot_data('instant')).pack(side=tk.LEFT)
         tk.Button(master=new_frame, text='Average',
                   command=lambda: self.plot_data('average')).pack(side=tk.LEFT)
-        tk.Button(master=new_frame, text='Quit', command=self._quit).pack(side=tk.LEFT)
+        tk.Button(master=new_frame, text='Quit', command=self.window_close).pack(side=tk.LEFT)
         new_frame.pack(side=tk.TOP, fill=tk.BOTH)
 
     def init_canvas(self):
@@ -165,24 +168,56 @@ class ThroughputGraph(Widget):
             return
         Widget.activate(self, connections, selection)
 
-        self.figure = Figure(figsize=(12, 5))
+        # proceed the selection items
+        # leave only the sub-connections
+        new_selection = []
+        for select in self.selection:
+            if select[1] == 0:
+                if [select[0], 1] not in self.selection:
+                    new_selection.append([select[0], 1])
+                if [select[0], 2] not in self.selection:
+                    new_selection.append([select[0], 2])
+            else:
+                new_selection.append(select)
+
+        self.selection = new_selection
+        self.figure = Figure(figsize=(15, 5))
         self.init_canvas()
         self.init_buttons()
         try:
             self.plot_data('instant')
         except:
-            self._quit()
+            self.window_close()
             showerror('Error', 'Connection data could not be visualized.')
 
 
 class ConnectionData(Widget):
     def __init__(self, master):
-        Widget.__init__(self, master, 'HTTP Detail')
+        Widget.__init__(self, master, 'Connection Raw Data')
+        self.listbox = None
+        self.text = None
+
+    def init_interface(self):
+        new_frame = tk.Frame(master=self.window)
+
+        self.listbox = tk.Listbox(master=new_frame)
+        self.text = tk.Text(master=new_frame)
+
+        self.listbox.pack(side=tk.LEFT, fill=tk.Y)
+        self.text.pack(side=tk.RIGHT)
+
+        new_frame.pack(side=tk.TOP)
 
     def show_text(self):
         pass
 
     def activate(self, connections, selection):
+        if self.is_active:
+            return
+        Widget.activate(self, connections, selection)
+
+        self.init_interface()
+
         for select in selection:
             pass
 
