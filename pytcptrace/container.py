@@ -2,6 +2,7 @@
 import Tkinter as tk
 import ttk
 import tkFont
+import FileDialog
 from pytcptrace import TcpTrace
 from filter import generate_filter
 from tkFileDialog import askopenfilename

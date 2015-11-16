@@ -1,6 +1,6 @@
 import Tkinter as tk
-from container import PyTcpTrace
-from widgets import ThroughputGraph, ConnectionData
+from pytcptrace import PyTcpTrace
+from pytcptrace import ThroughputGraph, ConnectionData
 
 __author__ = 'huangyan13@baidu.com'
 
