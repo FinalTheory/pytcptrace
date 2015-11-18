@@ -1,4 +1,6 @@
 # encoding: utf-8
+import os
+import sys
 import Tkinter as tk
 import ttk
 import tkFont
@@ -7,6 +9,7 @@ from pytcptrace import TcpTrace
 from filter import generate_filter
 from tkFileDialog import askopenfilename
 from tkMessageBox import showerror
+from subprocess import Popen, PIPE
 
 
 class PyTcpTrace:
@@ -16,7 +19,7 @@ class PyTcpTrace:
         master.protocol("WM_DELETE_WINDOW", lambda: (master.quit(), master.destroy()))
 
         self.filename = tk.StringVar()
-        self.prefix = tk.StringVar()
+        self.passwd = tk.StringVar()
         self.filter_str = tk.StringVar()
 
         self.widget_dict = {}
@@ -37,30 +40,64 @@ class PyTcpTrace:
 
     def init_loadfile(self):
         new_frame = tk.Frame(master=self.master)
+        tk.Button(master=new_frame, text='Network Emulator',
+                  command=lambda: self.start_emulator()
+                  if self.verify_root_password('fuck')
+                  else self.password_dialog()).pack(side=tk.LEFT)
         tk.Label(master=new_frame, text='File: ').pack(side=tk.LEFT)
-        tk.Entry(master=new_frame, textvariable=self.filename).pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        tk.Entry(master=new_frame, textvariable=self.filename)\
+            .pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
         tk.Button(master=new_frame, text='Select',
                   command=self.load_pcap_file).pack(side=tk.LEFT)
-        tk.Button(master=new_frame, text='Export',
-                  command=self.export_dialog).pack(side=tk.LEFT)
         new_frame.pack(side=tk.TOP, fill=tk.BOTH)
 
-    def export_dialog(self):
+    def password_dialog(self):
         top = tk.Toplevel(master=self.master)
-        top.title("Export figures")
-        new_frame = tk.Frame(master=top)
-        tk.Label(master=new_frame, text='Name Prefix').pack(side=tk.LEFT)
-        tk.Entry(master=new_frame, textvariable=self.prefix).pack(side=tk.LEFT)
-        new_frame.pack(side=tk.TOP, fill=tk.BOTH)
-        new_frame = tk.Frame(master=top)
-        tk.Button(master=new_frame, text='Export All',
-                  command=self.do_export).pack(side=tk.BOTTOM)
-        new_frame.pack(side=tk.TOP, fill=tk.BOTH)
+        top.title("Authorization")
 
-    def do_export(self):
-        # TODO: export interface:
-        # .export(path, prefix)
-        pass
+        def confirm_password():
+            if not self.verify_root_password(self.passwd.get()):
+                showerror(title='Authorization Error',
+                          message='Your root password might be incorrect')
+                return
+            top.destroy()
+            self.start_emulator()
+
+        new_frame = tk.Frame(master=top)
+        tk.Message(master=new_frame,
+                   text="Network Emulator needs **ROOT** "
+                        "privilege to load kernel extension "
+                        "and then redirect system packets.\n\n"
+                        "Please enter your root password here:")\
+            .pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        tk.Entry(master=new_frame, textvariable=self.passwd, show="*").pack(side=tk.TOP)
+        tk.Button(master=new_frame, text='Confirm',
+                  command=confirm_password).pack(side=tk.BOTTOM)
+        new_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+    @staticmethod
+    def verify_root_password(password):
+        cmd_list = ['sudo', '-S', 'whoami']
+        p = Popen(cmd_list, stdout=PIPE, stdin=PIPE, stderr=PIPE)
+        stdout_data = p.communicate(input=password + '\n')[0]
+        p.wait()
+        if p.returncode == 0 and len(stdout_data) >= 4 and stdout_data[0:4] == 'root':
+            return True
+        return False
+
+    def start_emulator(self):
+        # try to load the network emulator script
+        dir_name, filename = os.path.split(os.path.abspath(sys.argv[0]))
+        # check if it is in Mac App or in develop environment
+        if dir_name.find('Resources') != -1:
+            bin_path = os.path.join(dir_name, '..', 'MacOS', 'network_emulator')
+            p = Popen(['sudo', '-S', bin_path],
+                      stdout=PIPE, stdin=PIPE, stderr=PIPE)
+        else:
+            bin_path = os.path.join(dir_name, '..', 'network_emulator.py')
+            p = Popen(['sudo', '-S', 'python', bin_path],
+                      stdout=PIPE, stdin=PIPE, stderr=PIPE)
+        p.stdin.write(self.passwd.get() + '\n')
 
     def load_pcap_file(self):
         file_path = askopenfilename(title='Choose .pcap file', initialdir='~/Downloads')
@@ -169,7 +206,7 @@ class ConnectionList:
 
     def get_selected(self):
         return self.connections, map(lambda iid: map(int, iid.split('-'))
-                                     if iid.find('-') != -1 else [int(iid), 0],
+        if iid.find('-') != -1 else [int(iid), 0],
                                      self.listbox.selection())
 
     def clear_list(self):
@@ -213,7 +250,7 @@ class ConnectionList:
             return self.FLOAT_FMT % time_val
 
         def get_sub_connection(sub_conn):
-            return '%d FINs' % sub_conn['FIN_pkts_sent'][0],\
+            return '%d FINs' % sub_conn['FIN_pkts_sent'][0], \
                    sub_conn['packets_sent'][0], \
                    sub_conn['unique_bytes_sent'][0], \
                    time_wrapper(sub_conn['first_data_time'][0]), \
