@@ -2,17 +2,21 @@ import ttk
 import tkFont
 import inspect
 import Tkinter as tk
+import StringIO
+from PIL import Image, ImageTk
+from PIL.ImageTk import _show
 import numpy as np
 import curses.ascii
 import FileDialog
 import matplotlib
+import magic
 matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
 from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
 from tkMessageBox import showerror
 
-from pyparser import HttpParser
+from http_parser import HttpParser
 
 
 __author__ = 'huangyan13@baidu.com'
@@ -298,6 +302,8 @@ class ConnectionData(Widget):
 
 
 class HttpDetail(Widget):
+    ON_REQUEST = 0
+    ON_RESPONSE = 1
 
     def _sort_func_default(self, x):
         return self.connections[x[0]]['first_packet_time']
@@ -315,7 +321,8 @@ class HttpDetail(Widget):
         self.listbox = None
         self.text = None
         self.preview_size = tk.IntVar()
-        self.preview_size.set(4)
+        self.preview_size.set(1)
+        self.preview_status = self.ON_REQUEST
         self.request_list = None
         self.response_list = None
         self.connection_list = None
@@ -366,7 +373,10 @@ class HttpDetail(Widget):
         tk.Button(master=btn_frame, text='Request',
                   command=lambda: self.show('request')).pack(side=tk.LEFT)
         tk.Button(master=btn_frame, text='Response',
-                  command=lambda: self.show('response')).pack(side=tk.RIGHT)
+                  command=lambda: self.show('response')).pack(side=tk.LEFT)
+        tk.Label(master=btn_frame, text='KB').pack(side=tk.RIGHT)
+        tk.Entry(master=btn_frame, textvariable=self.preview_size, width=5).pack(side=tk.RIGHT)
+        tk.Label(master=btn_frame, text='Preview Size').pack(side=tk.RIGHT)
         btn_frame.pack(side=tk.TOP)
 
         scrollbar1 = tk.Scrollbar(master=text_frame, orient=tk.VERTICAL)
@@ -400,7 +410,7 @@ class HttpDetail(Widget):
         start = 0
         end = len(raw_data)
         while start < end:
-            r = HttpParser()
+            r = HttpParser(decompress=True)
             ret = r.execute(raw_data[start:])
             if ret < 0:
                 break
@@ -468,21 +478,19 @@ class HttpDetail(Widget):
                 max_len = 500
             self.listbox.column(header, width=max_len)
 
-    def show(self, show_type='request', view_type='headers'):
+    def show(self, show_type='request'):
         self.text.delete(1.0, tk.END)
         try:
             idx = int(self.listbox.selection()[0])
         except ValueError:
             return
-        method = getattr(self, 'show_' + view_type)
         if show_type == 'request':
+            self.preview_status = self.ON_REQUEST
             data = self.request_list[idx]
         else:
+            self.preview_status = self.ON_RESPONSE
             data = self.response_list[idx]
-        method(data, show_type)
-
-    def show_raw(self):
-        pass
+        self.show_headers(data, show_type)
 
     def show_headers(self, data, show_type):
         if show_type == 'request':
@@ -490,28 +498,64 @@ class HttpDetail(Widget):
         else:
             pass
         for r in data:
+            self.text.insert(tk.END, '<' * 20 + '-' * 20 + '>' * 20 + '\n\n')
+            raw_content = r.get_body()
             headers = r.get_headers()
             for key, val in headers.items():
                 self.text.insert(tk.END, key + ': ', 'key')
                 self.text.insert(tk.END, val + '\n')
 
-            self.text.insert(tk.END, '\n' + '<' * 20 + '-' * 20 + '>' * 20 + '\n\n')
+            content = headers.get('Content-Type')
+            self.text.insert(tk.END, '-' * 40 + '\n')
+            if content:
+                if content.split('/')[0].lower() == 'image':
+                    img = Image.open(StringIO.StringIO(raw_content))
+                    photo = ImageTk.PhotoImage(img)
+                    label = tk.Label(self.text, image=photo)
+                    label.photo = photo
+                    self.text.window_create(tk.END, window=label)
+                    self.text.insert(tk.END, '\n')
+                else:
+                    type_str = magic.from_buffer(raw_content)
+                    if type_str[:5] == 'ASCII':
+                        max_len = 1024 * self.preview_size.get()
+                        display_str = raw_content[:min(max_len, len(raw_content))]
+                        self.text.insert(tk.END, display_str)
+                        if len(raw_content) > max_len:
+                            button = tk.Button(self.text, text="More..",
+                                               command=lambda d=raw_content: self.show_more(d))
+                            self.text.window_create(tk.END, window=button)
+                        self.text.insert(tk.END, '\n')
+                    else:
+                        self.text.insert(tk.END, type_str + '\n', 'type')
+            self.text.insert(tk.END, '\n')
         self.text.tag_configure("key", foreground="blue")
+        self.text.tag_configure("type", foreground="green")
 
-    def show_contents(self):
-        pass
-
-    def show_hex(self):
-        pass
-
-    def show_image(self):
-        pass
+    def show_more(self, data):
+        top = tk.Toplevel(self.master)
+        top.title('Data Detail')
+        scrollbar1 = tk.Scrollbar(master=top, orient=tk.VERTICAL)
+        scrollbar2 = tk.Scrollbar(master=top, orient=tk.HORIZONTAL)
+        text = tk.Text(master=top, font='Monaco',
+                       yscrollcommand=scrollbar1.set,
+                       xscrollcommand=scrollbar2.set)
+        scrollbar1.config(command=self.text.yview)
+        scrollbar2.config(command=self.text.xview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
+        text.pack(fill=tk.BOTH, expand=True)
+        text.insert(tk.END, data)
+        text.config(state=tk.DISABLED)
 
     def on_select(self, event):
         # first delete all previous data
         self.text.delete(1.0, tk.END)
         # then call function to update view
-        self.show()
+        if self.preview_status == self.ON_REQUEST:
+            self.show('request')
+        else:
+            self.show('response')
 
     def activate(self, connections, selection):
         if self.is_active:
