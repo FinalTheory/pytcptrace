@@ -1,3 +1,6 @@
+import ttk
+import tkFont
+import inspect
 import Tkinter as tk
 import numpy as np
 import curses.ascii
@@ -9,10 +12,13 @@ from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
 from tkMessageBox import showerror
 
+from pyparser import HttpParser
+
+
 __author__ = 'huangyan13@baidu.com'
 
 
-class Widget:
+class Widget(object):
     def __init__(self, master, title):
         self.master = master
         self.title = title
@@ -177,7 +183,7 @@ class ThroughputGraph(Widget):
         toolbar.update()
         canvas._tkcanvas.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
-        new_frame.pack(side=tk.TOP, fill=tk.BOTH)
+        new_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
 
     def activate(self, connections, selection):
         if self.is_active:
@@ -292,9 +298,230 @@ class ConnectionData(Widget):
 
 
 class HttpDetail(Widget):
-    pass
+
+    def _sort_func_default(self, x):
+        return self.connections[x[0]]['first_packet_time']
+
+    def __init__(self, master):
+        self.Headers = [
+            ('Method', self._sort_func_default),
+            ('Host', self._sort_func_default),
+            ('Path', self._sort_func_default),
+            ('Start', self._sort_func_default),
+            ('Stop', lambda x: self.connections[x[0]]['last_packet_time']),
+            ('Total', lambda x: self.connections[x[0]]['elapsed_time']),
+        ]
+        Widget.__init__(self, master, 'HTTP Details')
+        self.listbox = None
+        self.text = None
+        self.preview_size = tk.IntVar()
+        self.preview_size.set(4)
+        self.request_list = None
+        self.response_list = None
+        self.connection_list = None
+        self.sort_status = {}
+
+    @staticmethod
+    def selection_filter(selection):
+        new_selection = []
+        for select in selection:
+            if select[1] == 1 or select[1] == 2:
+                if [select[0], 0] not in selection:
+                    new_selection.append([select[0], 0])
+            else:
+                new_selection.append(select)
+        return new_selection
+    
+    def init_interface(self):
+        main_frame = tk.Frame(master=self.window)
+
+        listbox_frame = tk.LabelFrame(master=main_frame, text='List')
+        
+        new_frame = tk.Frame(master=listbox_frame)
+        scrollbar1 = tk.Scrollbar(master=new_frame, orient=tk.VERTICAL)
+        scrollbar2 = tk.Scrollbar(master=new_frame, orient=tk.HORIZONTAL)
+        self.listbox = ttk.Treeview(master=new_frame,
+                                    columns=map(lambda x: x[0], self.Headers),
+                                    show="headings",
+                                    yscrollcommand=scrollbar1.set,
+                                    xscrollcommand=scrollbar2.set)
+        scrollbar1.config(command=self.listbox.yview)
+        scrollbar2.config(command=self.listbox.xview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
+        self.listbox.pack(side=tk.LEFT, expand=True, fill=tk.BOTH)
+        self.listbox.bind('<<TreeviewSelect>>', self.on_select)
+        new_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        listbox_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+
+        for header, func in self.Headers:
+            # set header for each column
+            self.listbox.heading(header, text=header,
+                                 command=lambda f=func, h=header: self.sort_by(f, h))
+
+        text_frame = tk.LabelFrame(master=main_frame, text='Details')
+
+        btn_frame = tk.Frame(master=text_frame)
+        tk.Button(master=btn_frame, text='Request',
+                  command=lambda: self.show('request')).pack(side=tk.LEFT)
+        tk.Button(master=btn_frame, text='Response',
+                  command=lambda: self.show('response')).pack(side=tk.RIGHT)
+        btn_frame.pack(side=tk.TOP)
+
+        scrollbar1 = tk.Scrollbar(master=text_frame, orient=tk.VERTICAL)
+        scrollbar2 = tk.Scrollbar(master=text_frame, orient=tk.HORIZONTAL)
+        self.text = tk.Text(master=text_frame, font='Monaco',
+                            yscrollcommand=scrollbar1.set,
+                            xscrollcommand=scrollbar2.set)
+        scrollbar1.config(command=self.text.yview)
+        scrollbar2.config(command=self.text.xview)
+        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
+        scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
+        self.text.pack(fill=tk.BOTH, expand=True)
+        text_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        main_frame.pack(fill=tk.BOTH, expand=True)
+    
+    def sort_by(self, func, header):
+        if self.connections:
+            if header in ('Method', 'Path', 'Host'):
+                header = 'Start'
+
+            if header not in self.sort_status:
+                self.sort_status[header] = False
+            self.selection = sorted(self.selection, key=func,
+                                    reverse=self.sort_status[header])
+            self.update_treeview()
+            self.sort_status[header] = not self.sort_status[header]
+
+    @staticmethod
+    def parse_http_list(raw_data):
+        result_list = []
+        start = 0
+        end = len(raw_data)
+        while start < end:
+            r = HttpParser()
+            ret = r.execute(raw_data[start:])
+            if ret < 0:
+                break
+            start += ret
+            result_list.append(r)
+
+        return result_list
+
+    def update_treeview(self):
+        # clear previous status
+        self.request_list = []
+        self.response_list = []
+        self.connection_list = []
+        for iid in self.listbox.get_children():
+            self.listbox.delete(iid)
+        
+        key_map = {
+            'a2b': 'b2a',
+            'b2a': 'a2b',
+        }
+        for select in self.selection:
+            conn = self.connections[select[0]]
+            found = False
+            for key in ('a2b', 'b2a'):
+                sub_conn = conn[key]
+                data = sub_conn['base64_data']
+                other_data = conn[key_map[key]]['base64_data']
+                # this is a response
+                if data[0:4] == 'HTTP':
+                    try:
+                        req = self.parse_http_list(other_data)
+                        reply = self.parse_http_list(data)
+                    except RuntimeError:
+                        continue
+                    if len(req) == 0 or len(reply) == 0:
+                        continue
+                    self.request_list.append(req)
+                    self.response_list.append(reply)
+                    self.connection_list.append(conn)
+                    found = True
+            if not found:
+                print 'Unknown Connection'
+
+        data_list = [map(lambda x: x[0], self.Headers)]
+        # first fill content into each row
+        for idx, req in enumerate(self.request_list):
+            conn = self.connection_list[idx]
+            data = (req[0].get_method(), req[0].get_headers()['Host'],
+                    req[0].get_url(), '%.2f' % conn['first_packet_time'],
+                    '%.2f' % conn['last_packet_time'], '%.2f' % conn['elapsed_time'])
+            self.listbox.insert('', tk.END, str(idx), values=data)
+            data_list.append(data)
+
+        # then adjust column width
+        for idx, header in enumerate(map(lambda x: x[0], self.Headers)):
+            # calculate max length
+            len_list = map(lambda x: tkFont.Font().measure(x[idx].title()) + 10, data_list)
+            if len(len_list) == 0:
+                break
+            elif len(len_list) == 1:
+                max_len = len_list[0]
+            else:
+                max_len = max(*len_list)
+            if header == 'Path' and max_len > 500:
+                max_len = 500
+            self.listbox.column(header, width=max_len)
+
+    def show(self, show_type='request', view_type='headers'):
+        self.text.delete(1.0, tk.END)
+        try:
+            idx = int(self.listbox.selection()[0])
+        except ValueError:
+            return
+        method = getattr(self, 'show_' + view_type)
+        if show_type == 'request':
+            data = self.request_list[idx]
+        else:
+            data = self.response_list[idx]
+        method(data, show_type)
+
+    def show_raw(self):
+        pass
+
+    def show_headers(self, data, show_type):
+        if show_type == 'request':
+            pass
+        else:
+            pass
+        for r in data:
+            headers = r.get_headers()
+            for key, val in headers.items():
+                self.text.insert(tk.END, key + ': ', 'key')
+                self.text.insert(tk.END, val + '\n')
+
+            self.text.insert(tk.END, '\n' + '<' * 20 + '-' * 20 + '>' * 20 + '\n\n')
+        self.text.tag_configure("key", foreground="blue")
+
+    def show_contents(self):
+        pass
+
+    def show_hex(self):
+        pass
+
+    def show_image(self):
+        pass
+
+    def on_select(self, event):
+        # first delete all previous data
+        self.text.delete(1.0, tk.END)
+        # then call function to update view
+        self.show()
+
+    def activate(self, connections, selection):
+        if self.is_active:
+            return
+        Widget.activate(self, connections, selection)
+        # proceed the selected items
+        self.selection = self.selection_filter(self.selection)
+        self.init_interface()
+        self.sort_by(self._sort_func_default, 'Start')
 
 
 class TimeSequenceGraph(Widget):
     pass
-
