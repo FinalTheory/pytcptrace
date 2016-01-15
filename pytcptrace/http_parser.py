@@ -4,7 +4,7 @@
 #
 # Author: 黄龑(huangyan13@baidu.com)
 # Created Time: 2016/01/14 14:54
-# File Name: pyparser.py
+# File Name: http_parser.py
 # Description: 
 #
 # Copyright (c) 2015 Baidu.com, Inc. All Rights Reserved
@@ -427,10 +427,10 @@ class HttpParser(object):
                         return INVALID_TRAILER
                 # if this response have trailer
                 if self._have_trailer and rest[:2] != "\r\n":
-                    idx = data.find("\r\n\r\n")
+                    idx = rest.find("\r\n\r\n")
                     if idx != -1:
                         try:
-                            self._parse_headers(rest[:idx])
+                            self._parse_headers(rest[:idx + 4])
                             self.nb_parsed += idx + 4
                             return 0
                         except InvalidHeader:
@@ -513,6 +513,7 @@ class TestHttpParser(unittest.TestCase):
         r = HttpParser()
         self.assertEqual(r.execute(data), len(data))
         self.assertEqual(r.execute(data * 2), len(data))
+        self.assertEqual(r.get_body(), '0123456789')
 
     def test_empty_response(self):
         data = ('HTTP/1.1 200 OK\r\n'
@@ -534,6 +535,7 @@ class TestHttpParser(unittest.TestCase):
         r = HttpParser()
         self.assertEqual(r.execute(data), len(data) - 10)
         self.assertEqual(r.execute(data * 2), len(data) - 10)
+        self.assertEqual(r.get_body(), '')
 
     def test_invalid_response(self):
         data = ('HTTP/1.1 200 OK\r\n'
@@ -570,6 +572,27 @@ class TestHttpParser(unittest.TestCase):
                 '0\r\n'
                 '\r\n') + 'a' * l
         self.assertEqual(r.execute(data), len(data) - l)
+        self.assertEqual(r.get_body(), '0123456789012345')
+
+    def test_trunk_trailer(self):
+        r = HttpParser()
+        l = 1000
+        data = ('HTTP/1.1 200 OK\r\n'
+                'Transfer-Encoding: chunked\r\n'
+                'Trailer: Expires\r\n'
+                '\r\n'
+                'b\r\n'
+                '01234567890\r\n'
+                '5\r\n'
+                '12345\r\n'
+                '0\r\n'
+                'Expires: fuck\r\n'
+                'This: is shit\r\n'
+                '\r\n') + 'a' * l
+        self.assertEqual(r.execute(data), len(data) - l)
+        self.assertEqual(r.get_headers()['Expires'], 'fuck')
+        self.assertEqual(r.get_headers()['This'], 'is shit')
+        self.assertEqual(r.get_body(), '0123456789012345')
 
 
 if __name__ == '__main__':
