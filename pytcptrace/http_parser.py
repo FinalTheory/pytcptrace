@@ -97,6 +97,9 @@ class HttpParser(object):
     def get_status_code(self):
         return self._status_code
 
+    def get_reason(self):
+        return self._reason
+
     def get_url(self):
         return self._url
 

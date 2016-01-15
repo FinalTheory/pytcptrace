@@ -493,12 +493,14 @@ class HttpDetail(Widget):
         self.show_headers(data, show_type)
 
     def show_headers(self, data, show_type):
-        if show_type == 'request':
-            pass
-        else:
-            pass
         for r in data:
             self.text.insert(tk.END, '<' * 20 + '-' * 20 + '>' * 20 + '\n\n')
+            if show_type == 'request':
+                self.text.insert(tk.END, ' '.join([r.get_method(), r.get_url(),
+                                                   'HTTP/' + '.'.join(map(str, r.get_version()))]) + '\n\n', 'head')
+            else:
+                self.text.insert(tk.END, ' '.join(['HTTP/' + '.'.join(map(str, r.get_version())),
+                                                   str(r.get_status_code()), r.get_reason()]) + '\n\n', 'head')
             raw_content = r.get_body()
             headers = r.get_headers()
             for key, val in headers.items():
@@ -531,6 +533,7 @@ class HttpDetail(Widget):
             self.text.insert(tk.END, '\n')
         self.text.tag_configure("key", foreground="blue")
         self.text.tag_configure("type", foreground="green")
+        self.text.tag_configure("head", foreground="red")
 
     def show_more(self, data):
         top = tk.Toplevel(self.master)
