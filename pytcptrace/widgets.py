@@ -4,7 +4,6 @@ import inspect
 import Tkinter as tk
 import StringIO
 from PIL import Image, ImageTk
-from PIL.ImageTk import _show
 import numpy as np
 import curses.ascii
 import FileDialog
@@ -322,6 +321,7 @@ class HttpDetail(Widget):
         self.text = None
         self.preview_size = tk.IntVar()
         self.preview_size.set(1)
+        self.cursor = 0
         self.preview_status = self.ON_REQUEST
         self.request_list = None
         self.response_list = None
@@ -536,20 +536,39 @@ class HttpDetail(Widget):
         self.text.tag_configure("head", foreground="red")
 
     def show_more(self, data):
+        dt_len = len(data)
+        preview_len = self.preview_size.get() * 1024
+        direction_up = 0
+        direction_down = 1
+        self.cursor = 0
+
         top = tk.Toplevel(self.master)
         top.title('Data Detail')
-        scrollbar1 = tk.Scrollbar(master=top, orient=tk.VERTICAL)
-        scrollbar2 = tk.Scrollbar(master=top, orient=tk.HORIZONTAL)
-        text = tk.Text(master=top, font='Monaco',
-                       yscrollcommand=scrollbar1.set,
-                       xscrollcommand=scrollbar2.set)
-        scrollbar1.config(command=self.text.yview)
-        scrollbar2.config(command=self.text.xview)
-        scrollbar1.pack(side=tk.RIGHT, fill=tk.Y)
-        scrollbar2.pack(side=tk.BOTTOM, fill=tk.X)
+
+        text_frame = tk.Frame(master=top)
+        scrollbar = tk.Scrollbar(master=text_frame, orient=tk.VERTICAL)
+        text = tk.Text(master=text_frame, font='Monaco',
+                       yscrollcommand=scrollbar.set)
+        scrollbar.config(command=text.yview)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
         text.pack(fill=tk.BOTH, expand=True)
-        text.insert(tk.END, data)
-        text.config(state=tk.DISABLED)
+        text_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True)
+        text.insert(tk.END, data[0: min(preview_len, dt_len)])
+
+        def move(direction):
+            if direction == direction_up:
+                self.cursor = max(0, self.cursor - preview_len)
+            else:
+                self.cursor = min(dt_len, self.cursor + preview_len)
+            text.delete(1.0, tk.END)
+            text.insert(tk.END, data[self.cursor: min(dt_len, self.cursor + preview_len)])
+
+        btn_frame = tk.Frame(master=top)
+        tk.Button(master=btn_frame, text='Up',
+                  command=lambda d=direction_up: move(d)).pack(side=tk.LEFT)
+        tk.Button(master=btn_frame, text='Down',
+                  command=lambda d=direction_down: move(d)).pack(side=tk.RIGHT)
+        btn_frame.pack(side=tk.TOP)
 
     def on_select(self, event):
         # first delete all previous data
