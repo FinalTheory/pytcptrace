@@ -436,8 +436,8 @@ class HttpDetail(Widget):
             found = False
             for key in ('a2b', 'b2a'):
                 sub_conn = conn[key]
-                data = sub_conn['base64_data']
-                other_data = conn[key_map[key]]['base64_data']
+                data = sub_conn.get('base64_data', '')
+                other_data = conn[key_map[key]].get('base64_data', '')
                 # this is a response
                 if data[0:4] == 'HTTP':
                     try:
