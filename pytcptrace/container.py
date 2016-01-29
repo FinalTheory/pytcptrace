@@ -15,7 +15,7 @@ from subprocess import Popen, PIPE
 class PyTcpTrace:
     def __init__(self, master):
         self.master = master
-        master.title("TCPtrace Analyze")
+        master.title("Network Performance Analyze")
         master.protocol("WM_DELETE_WINDOW", lambda: (master.quit(), master.destroy()))
 
         self.filename = tk.StringVar()

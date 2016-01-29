@@ -383,19 +383,20 @@ class HttpParser(object):
 
     def _parse_body(self, data):
         if not self._chunked:
+            complete = True
+            self.__on_message_complete = True
             # if we have enough data
-            if len(data) >= self._clen:
-                self.__on_message_complete = True
-            else:
+            if len(data) < self._clen:
+                complete = False
+                self._clen = len(data)
                 self.errno = INVALID_BODY
                 self.errstr = "HTTP body incomplete"
-                return INVALID_BODY
 
             body_part = data[:self._clen]
             self.nb_parsed += len(body_part)
 
             # maybe decompress
-            if body_part and self.__decompress_obj is not None:
+            if complete and body_part and self.__decompress_obj is not None:
                 if not self.__decompress_first_try:
                     body_part = self.__decompress_obj.decompress(body_part)
                 else:
@@ -486,13 +487,14 @@ class HttpParser(object):
 
 class TestHttpParser(unittest.TestCase):
     def test_normal_request(self):
-        r = HttpParser()
         data = ('GET /anxun/pic/item/0824ab18972bd4073f3636e97c899e510fb30934.jpg HTTP/1.1\r\n'
                 'Host: imgsrc.baidu.com\r\n'
                 'Connection: Keep-Alive\r\n'
                 'User-Agent: android-async-http/1.0\r\n'
                 '\r\n')
+        r = HttpParser()
         self.assertEqual(r.execute(data), len(data))
+        r = HttpParser()
         self.assertEqual(r.execute(data * 2), len(data))
 
     def test_normal_response(self):
@@ -515,6 +517,7 @@ class TestHttpParser(unittest.TestCase):
                 '0123456789')
         r = HttpParser()
         self.assertEqual(r.execute(data), len(data))
+        r = HttpParser()
         self.assertEqual(r.execute(data * 2), len(data))
         self.assertEqual(r.get_body(), '0123456789')
 
@@ -537,6 +540,7 @@ class TestHttpParser(unittest.TestCase):
                 '0123456789')
         r = HttpParser()
         self.assertEqual(r.execute(data), len(data) - 10)
+        r = HttpParser()
         self.assertEqual(r.execute(data * 2), len(data) - 10)
         self.assertEqual(r.get_body(), '')
 
@@ -559,11 +563,12 @@ class TestHttpParser(unittest.TestCase):
                 '\r\n'
                 '012345678')
         r = HttpParser()
-        self.assertEqual(r.execute(data), INVALID_BODY)
-        self.assertEqual(r.execute(data * 2), INVALID_BODY)
+        self.assertEqual(r.execute(data), len(data))
+        r = HttpParser()
+        self.assertEqual(r.execute(data * 2), len(data) + 1)
+
 
     def test_trunk_encoding(self):
-        r = HttpParser()
         l = 1000
         data = ('HTTP/1.1 200 OK\r\n'
                 'Transfer-Encoding: chunked\r\n'
@@ -574,6 +579,7 @@ class TestHttpParser(unittest.TestCase):
                 '12345\r\n'
                 '0\r\n'
                 '\r\n') + 'a' * l
+        r = HttpParser()
         self.assertEqual(r.execute(data), len(data) - l)
         self.assertEqual(r.get_body(), '0123456789012345')
 
