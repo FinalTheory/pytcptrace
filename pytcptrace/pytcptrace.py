@@ -26,7 +26,7 @@ class TcpTrace:
         fid = NamedTemporaryFile('w', delete=False)
         temp_name = fid.name
         fid.close()
-        pid = subprocess.Popen([self._tcptrace, '-J' + temp_name, '-e', '-T', pcap_file],
+        pid = subprocess.Popen([self._tcptrace, '-n', '-J' + temp_name, '-e', '-T', pcap_file],
                                stdout=subprocess.PIPE,
                                stderr=subprocess.PIPE)
         pid.wait()
@@ -36,6 +36,8 @@ class TcpTrace:
             fid = open(temp_name, 'r')
             raw_json = fid.read()
             fid.close()
+            if not raw_json:
+                raise RuntimeError('.pcap file do not contain valid TCP connections.')
             os.remove(temp_name)
             return PcapHandle(raw_json, pid.stdout.read(), pid.stderr.read())
 

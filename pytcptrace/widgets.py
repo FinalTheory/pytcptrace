@@ -13,7 +13,7 @@ matplotlib.use('TkAgg')
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2TkAgg
 from matplotlib.figure import Figure
 from scipy.interpolate import interp1d
-from tkMessageBox import showerror
+from tkMessageBox import showerror, showinfo
 
 from http_parser import HttpParser
 
@@ -431,6 +431,7 @@ class HttpDetail(Widget):
             'a2b': 'b2a',
             'b2a': 'a2b',
         }
+        num_unknown = 0
         for select in self.selection:
             conn = self.connections[select[0]]
             found = False
@@ -452,7 +453,8 @@ class HttpDetail(Widget):
                     self.connection_list.append(conn)
                     found = True
             if not found:
-                print 'Unknown Connection'
+                num_unknown += 1
+        showinfo('Loading Complete', 'Non-HTTP Connection: %d' % num_unknown)
 
         data_list = [map(lambda x: x[0], self.Headers)]
         # first fill content into each row
