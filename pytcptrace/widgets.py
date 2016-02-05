@@ -511,14 +511,17 @@ class HttpDetail(Widget):
 
             content = headers.get('Content-Type')
             self.text.insert(tk.END, '-' * 40 + '\n')
-            if content:
+            if content and raw_content:
                 if content.split('/')[0].lower() == 'image':
-                    img = Image.open(StringIO.StringIO(raw_content))
-                    photo = ImageTk.PhotoImage(img)
-                    label = tk.Label(self.text, image=photo)
-                    label.photo = photo
-                    self.text.window_create(tk.END, window=label)
-                    self.text.insert(tk.END, '\n')
+                    try:
+                        img = Image.open(StringIO.StringIO(raw_content))
+                        photo = ImageTk.PhotoImage(img)
+                        label = tk.Label(self.text, image=photo)
+                        label.photo = photo
+                        self.text.window_create(tk.END, window=label)
+                        self.text.insert(tk.END, '\n')
+                    except Exception as e:
+                        self.text.insert(tk.END, 'Error decoding image: %s\n' % e.message, 'type')
                 else:
                     type_str = magic.from_buffer(raw_content)
                     if type_str[:5] == 'ASCII':
